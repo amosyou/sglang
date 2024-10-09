@@ -357,6 +357,19 @@ class DeepseekV2AttentionMLA(nn.Module):
         self.rope_theta = rope_theta
         self.max_position_embeddings = max_position_embeddings
 
+        print(f"hidden_size: {hidden_size}")
+        print(f"qk_nope_head_dim: {qk_nope_head_dim}")
+        print(f"qk_rope_head_dim: {qk_rope_head_dim}")
+        print(f"qk_head_dim: {qk_nope_head_dim + qk_rope_head_dim}")
+        print(f"v_head_dim: {v_head_dim}")
+        print(f"q_lora_rank: {q_lora_rank}")
+        print(f"kv_lora_rank: {kv_lora_rank}")
+        print(f"num_heads: {num_heads}")
+        print(f"num_local_heads: {num_heads // tp_size}")
+        print(f"scaling: {self.qk_head_dim**-0.5}")
+        print(f"rope_theta: {rope_theta}")
+        print(f"max_position_embeddings: {max_position_embeddings}")
+
         if self.q_lora_rank is not None:
             self.q_a_proj = ReplicatedLinear(
                 self.hidden_size,
@@ -371,6 +384,10 @@ class DeepseekV2AttentionMLA(nn.Module):
                 bias=False,
                 quant_config=quant_config,
             )
+            print(f"q_lora_rank: {self.q_lora_rank}")
+            print(f"q_a_proj: {self.q_a_proj}")
+            print(f"q_a_layernorm: {self.q_a_layernorm}")
+            print(f"q_b_proj: {self.q_b_proj}")
         else:
             self.q_proj = ColumnParallelLinear(
                 self.hidden_size,
@@ -378,6 +395,7 @@ class DeepseekV2AttentionMLA(nn.Module):
                 bias=False,
                 quant_config=quant_config,
             )
+            print(f"q_proj: {self.q_proj}")
 
         self.kv_a_proj_with_mqa = ReplicatedLinear(
             self.hidden_size,
@@ -392,6 +410,10 @@ class DeepseekV2AttentionMLA(nn.Module):
             bias=False,
             quant_config=quant_config,
         )
+        print(f"kv_lora_rank: {self.kv_lora_rank}")
+        print(f"kv_a_proj: {self.kv_a_proj_with_mqa}")
+        print(f"kv_a_layernorm: {self.kv_a_layernorm}")
+        print(f"kv_b_proj: {self.kv_b_proj}")
         # O projection.
         self.o_proj = RowParallelLinear(
             self.num_heads * self.v_head_dim,
@@ -399,6 +421,7 @@ class DeepseekV2AttentionMLA(nn.Module):
             bias=False,
             quant_config=quant_config,
         )
+        print(f"o_proj: {self.o_proj}")
         rope_scaling["type"] = "deepseek_yarn"
         self.rotary_emb = get_rope(
             qk_rope_head_dim,
@@ -408,6 +431,7 @@ class DeepseekV2AttentionMLA(nn.Module):
             rope_scaling=rope_scaling,
             is_neox_style=False,
         )
+        print(f"rotary_emb: {self.rotary_emb}")
 
         if rope_scaling:
             mscale_all_dim = rope_scaling.get("mscale_all_dim", False)
@@ -434,10 +458,18 @@ class DeepseekV2AttentionMLA(nn.Module):
         hidden_states: torch.Tensor,
         forward_batch: ForwardBatch,
     ) -> torch.Tensor:
+        
+        print(f"positions: {positions.shape}")
+        print(f"hidden_states: {hidden_states.shape}")
+        print(f"forward_batch: {forward_batch}")
+
         q_len = hidden_states.shape[0]
+        print(f"q_len: {q_len}")
+
         q_input = hidden_states.new_empty(
             q_len, self.num_local_heads, self.kv_lora_rank + self.qk_rope_head_dim
         )
+        print(f"q_input: {q_input.shape}")
         if self.q_lora_rank is not None:
             q = self.q_a_proj(hidden_states)[0]
             q = self.q_a_layernorm(q)
@@ -446,7 +478,10 @@ class DeepseekV2AttentionMLA(nn.Module):
             q = self.q_proj(hidden_states)[0].view(
                 -1, self.num_local_heads, self.qk_head_dim
             )
+        print(f"q: {q.shape}")
         q_nope, q_pe = q.split([self.qk_nope_head_dim, self.qk_rope_head_dim], dim=-1)
+        print(f"q_nope: {q_nope.shape}")
+        print(f"q_pe: {q_pe.shape}")
 
         if self.w_kc.dtype == torch.float8_e4m3fn:
             q_nope_val, q_nope_scale = input_to_float8(
@@ -457,21 +492,30 @@ class DeepseekV2AttentionMLA(nn.Module):
             )
         else:
             q_nope_out = torch.bmm(q_nope.transpose(0, 1), self.w_kc)
+        print(f"q_nope_out: {q_nope_out.shape}")
         q_input[..., : self.kv_lora_rank] = q_nope_out.transpose(0, 1)
+        print(f"q_input: {q_input.shape}")
 
         latent_cache = self.kv_a_proj_with_mqa(hidden_states)[0]
+        print(f"latent_cache: {latent_cache}")
         v_input = latent_cache[..., : self.kv_lora_rank]
+        print(f"v_input: {v_input.shape}")
         v_input = self.kv_a_layernorm(v_input.contiguous()).unsqueeze(1)
+        print(f"v_input: {v_input.shape}")
         k_input = latent_cache.unsqueeze(1)
+        print(f"k_input: {k_input.shape}")
         k_input[..., : self.kv_lora_rank] = v_input
         k_pe = k_input[..., self.kv_lora_rank :]
+        print(f"k_pe: {k_pe.shape}")
 
         q_pe, k_pe = self.rotary_emb(positions, q_pe, k_pe)
         q_input[..., self.kv_lora_rank :] = q_pe
         k_input[..., self.kv_lora_rank :] = k_pe
 
         attn_output = self.attn(q_input, k_input, v_input, forward_batch)
+        print(f"attn_output: {attn_output.shape}")
         attn_output = attn_output.view(-1, self.num_local_heads, self.kv_lora_rank)
+        print(f"attn_output: {attn_output.shape}")
 
         if self.w_vc.dtype == torch.float8_e4m3fn:
             attn_output_val, attn_output_scale = input_to_float8(
@@ -486,8 +530,12 @@ class DeepseekV2AttentionMLA(nn.Module):
             )
         else:
             attn_bmm_output = torch.bmm(attn_output.transpose(0, 1), self.w_vc)
+
+        print(f"attn_bmm_output: {attn_bmm_output.shape}")
         attn_output = attn_bmm_output.transpose(0, 1).flatten(1, 2)
+        print(f"attn_output: {attn_output.shape}")
         output, _ = self.o_proj(attn_output)
+        print(f"output: {output.shape}")
 
         return output
 
