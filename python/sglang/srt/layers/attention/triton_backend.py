@@ -101,6 +101,8 @@ class TritonAttnBackend(AttentionBackend):
         # TODO: reuse the buffer across layers
         if layer.qk_head_dim != layer.v_head_dim:
             o = q.new_empty((q.shape[0], layer.tp_q_head_num * layer.v_head_dim))
+            # q_head_num * v_head_dim makes since we are doing the entire attention computation
+            # from q * k^T * v
         else:
             o = torch.empty_like(q)
 
