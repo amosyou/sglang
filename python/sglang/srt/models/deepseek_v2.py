@@ -621,6 +621,16 @@ class DeepseekV2AttentionMLA(nn.Module):
         q_input[..., self.kv_lora_rank :] = q_pe
         k_input[..., self.kv_lora_rank :] = k_pe
 
+        # if self.layer_id == 0:
+        #     print("PREATTN")
+        #     print(f"Layer {self.layer_id} q_input shape: {q_input.shape}")
+        #     print(f"Layer {self.layer_id} q_input: {q_input}")
+            # print(f"Layer {self.layer_id} k_input shape: {k_input.shape}")
+            # print(f"Layer {self.layer_id} k_input: {k_input}")
+            # print(f"Layer {self.layer_id} v_input shape: {v_input.shape}")
+            # print(f"Layer {self.layer_id} v_input: {v_input}")
+            # print("FINISH PREATTN")
+
         attn_output = self.attn_mqa(q_input, k_input, v_input, forward_batch)
         attn_output = attn_output.view(-1, self.num_local_heads, self.kv_lora_rank)
         if self.layer_id == 0:
