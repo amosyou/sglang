@@ -56,6 +56,7 @@ class ModelConfig:
             revision=revision,
             model_override_args=self.model_override_args,
         )
+        self.hf_config.num_hidden_layers = 4
         self.hf_text_config = get_hf_text_config(self.hf_config)
 
         # Check model type

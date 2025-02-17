@@ -575,6 +575,10 @@ class DeepseekV2AttentionMLA(nn.Module):
         hidden_states: torch.Tensor,
         forward_batch: ForwardBatch,
     ) -> torch.Tensor:
+        # print("PREATTN")
+        # print(f"Layer {self.layer_id} hidden_states shape: {hidden_states.shape}")
+        # print(f"Layer {self.layer_id} hidden_states: {hidden_states}")
+        # print("FINISH PREATTN")
         q_len = hidden_states.shape[0]
         q_input = hidden_states.new_empty(
             q_len, self.num_local_heads, self.kv_lora_rank + self.qk_rope_head_dim
@@ -619,6 +623,11 @@ class DeepseekV2AttentionMLA(nn.Module):
 
         attn_output = self.attn_mqa(q_input, k_input, v_input, forward_batch)
         attn_output = attn_output.view(-1, self.num_local_heads, self.kv_lora_rank)
+        if self.layer_id == 0:
+            print("POST ATTN")
+            print(f"Layer {self.layer_id} attn_output shape: {attn_output.shape}")
+            print(f"Layer {self.layer_id} attn_output: {attn_output}")
+            print("FINISH POST ATTN")
 
         if self.w_vc.dtype == torch.float8_e4m3fnuz:
             # TODO(kernel): add bmm_fp8 for torch.float8_e4m3fnuz
@@ -832,6 +841,8 @@ class DeepseekV2Model(nn.Module):
             hidden_states, residual = layer(
                 positions, hidden_states, forward_batch, residual
             )
+            # print(f"Layer {i} hidden_states shape: {hidden_states.shape}")
+            # print(f"Layer {i} hidden_states: {hidden_states}")
         if not forward_batch.forward_mode.is_idle():
             hidden_states, _ = self.norm(hidden_states, residual)
         return hidden_states
@@ -902,6 +913,9 @@ class DeepseekV2ForCausalLM(nn.Module):
                         and int(name_list[2]) >= self.config.num_hidden_layers
                     ):
                         continue
+            split = name.split(".")
+            if len(split) >= 3 and "model.layers" in name and int(split[2]) >= self.config.num_hidden_layers:
+                continue
             if "rotary_emb.inv_freq" in name:
                 continue
             for param_name, weight_name, shard_id in stacked_params_mapping:
