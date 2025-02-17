@@ -12,8 +12,8 @@ from sglang_mla import extend_attention_fwd
 def generate_test_data(
     batch_size: int = 4,
     seq_len: int = 128,
-    n_heads_q: int = 8,
-    n_heads_kv: int = 4,
+    n_heads_q: int = 32,
+    n_heads_kv: int = 1,
     dtype: torch.dtype = torch.float16,
 ) -> Tuple[torch.Tensor, ...]:
     """Generate random test data for both attention implementations."""
@@ -145,8 +145,8 @@ def run_test_with_retry(config: dict, max_retries: int = 3) -> None:
 def run_test(
     batch_size: int = 4,
     seq_len: int = 128,
-    n_heads_q: int = 8,
-    n_heads_kv: int = 4,
+    n_heads_q: int = 32,
+    n_heads_kv: int = 1,
     dtype: torch.dtype = torch.float16,
     seed: int = 42,
 ) -> None:
@@ -233,7 +233,7 @@ if __name__ == "__main__":
     # Test with different configurations
     # Start with smaller configs for testing
     configs = [
-        {"batch_size": 2, "seq_len": 16},
+        {"batch_size": 2048, "seq_len": 50},
         # {"batch_size": 4, "seq_len": 32},
         # {"batch_size": 2, "seq_len": 64},
     ]
