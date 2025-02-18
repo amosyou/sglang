@@ -575,10 +575,12 @@ class DeepseekV2AttentionMLA(nn.Module):
         hidden_states: torch.Tensor,
         forward_batch: ForwardBatch,
     ) -> torch.Tensor:
-        # print("PREATTN")
-        # print(f"Layer {self.layer_id} hidden_states shape: {hidden_states.shape}")
-        # print(f"Layer {self.layer_id} hidden_states: {hidden_states}")
-        # print("FINISH PREATTN")
+        if forward_batch.forward_mode.is_extend():
+            # print("PREATTN")
+            # print(f"Layer {self.layer_id} hidden_states shape: {hidden_states.shape}")
+            # print(f"Layer {self.layer_id} hidden_states: {hidden_states}")
+            # print("FINISH PREATTN")
+            torch.save(hidden_states, f"/home/gcpuser/FastMoE/tests/sglang_hidden_states_prefill_layer_{self.layer_id}_tp_{hidden_states.device.index}.pt")
         q_len = hidden_states.shape[0]
         q_input = hidden_states.new_empty(
             q_len, self.num_local_heads, self.kv_lora_rank + self.qk_rope_head_dim
