@@ -119,6 +119,44 @@ from sglang.srt.utils import (
 )
 from sglang.utils import TypeBasedDispatcher, get_exception_traceback
 
+import torch
+import flash_bpe
+from rs import SimpleTokenizer
+from concurrent.futures import ThreadPoolExecutor
+import time
+import tiktoken
+import base64
+from huggingface_hub import hf_hub_download
+import json
+
+
+def flatten_with_sublist_offsets(nested_list):
+    flat_list = []
+    offsets = []
+    
+    current_index = 0
+    for sublist in nested_list:
+        offsets.append(current_index)
+        flat_list.extend(sublist)
+        current_index += len(sublist)
+    
+    return flat_list, offsets
+
+def encode(batch, lookup, bpe, num_threads, padding_token_id=128009):
+
+    with ThreadPoolExecutor(max_workers=num_threads) as pool:
+        # results = list(pool.map(lookup.encode_ordinary, batch))
+        results = list(pool.map(lookup.encode, batch))
+        results = [[128000] + x for x in results]
+        lengths = list(pool.map(len, results))
+        global_length = sum(lengths)
+        batch_size = len(lengths)
+        flattened, offsets = flatten_with_sublist_offsets(results)
+    
+    ids, attn_mask = bpe.process(flattened, offsets, lengths, global_length, batch_size, padding_token_id)
+    d = {"input_ids": ids, "attn_mask": attn_mask}
+    return d
+
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 logger = logging.getLogger(__name__)
@@ -232,7 +270,26 @@ class TokenizerManager:
                     trust_remote_code=server_args.trust_remote_code,
                     revision=server_args.revision,
                 )
+        self.tokenizer.encode_batch = encode
+        self.bpe = flash_bpe.BPE("/home/ubuntu/flash-bpe/llama3_merge.bin")
+        mergeable_ranks = {}
+        with open('/home/ubuntu/flash-bpe/tokenizer.model', 'r') as f:
+            lines = f.readlines()
 
+        for i, line in enumerate(lines):
+            token, rank = line.split()
+            mergeable_ranks[base64.b64decode(token)] = int(rank)
+        
+        with open(hf_hub_download("meta-llama/Llama-3.1-8B-Instruct", filename="tokenizer.json"), 'r') as f:
+            tokenizer_json = json.load(f)
+
+        special_tokens = {d["content"]: d["id"] for d in tokenizer_json["added_tokens"]}
+
+        self.lookup = SimpleTokenizer(
+            mergeable_ranks,
+            special_tokens,
+        )
+        
         # Store states
         self.no_create_loop = False
         self.rid_to_state: Dict[str, ReqState] = {}
@@ -586,8 +643,15 @@ class TokenizerManager:
         texts = [req.text for req in requests]
 
         # Batch tokenize all texts
+        start = time.perf_counter()
         encoded = self.tokenizer(texts)
+        end = time.perf_counter()
+        print(end - start)
         input_ids_list = encoded["input_ids"]
+        # encoded = self.tokenizer.encode_batch(
+        #     texts, self.lookup, self.bpe, 128
+        # )
+        # input_ids_list = encoded["input_ids"].tolist()
 
         # Process all requests
         tokenized_objs = []

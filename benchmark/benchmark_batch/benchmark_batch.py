@@ -15,12 +15,13 @@ from sglang.lang.backend.runtime_endpoint import RuntimeEndpoint
 # CONFIG
 ###############################################################################
 ENDPOINT_URL = "http://127.0.0.1:30000"
-TOKENIZER_DIR = "/models/meta-llama/Llama-3.2-3B"
+# TOKENIZER_DIR = "/models/meta-llama/Llama-3.2-3B"
+TOKENIZER_DIR = "meta-llama/Llama-3.1-8B-Instruct"
 
 # Benchmark configurations
-NUM_REQUESTS = 10  # Total number of requests (each with BATCH_SIZE prompts)
-NUM_TOKENS = 32000  # Tokens per prompt
-BATCH_SIZE = 8  # Number of prompts per request
+NUM_REQUESTS = 2  # Total number of requests (each with BATCH_SIZE prompts)
+NUM_TOKENS = 64  # Tokens per prompt
+BATCH_SIZE = 512  # Number of prompts per request
 GEN_TOKENS = 0  # Tokens to generate per prompt
 
 
